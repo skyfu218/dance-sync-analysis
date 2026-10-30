@@ -1,0 +1,11 @@
+Dance Sync WebApp
+Copyright 2026 臺灣運動健康科技學會
+
+This product includes a browser-based adaptation inspired by dance_sync from
+Jeremy Park's vision-demos project (Copyright 2026 Jeremy Park), licensed under
+the Apache License, Version 2.0.
+
+Original project: https://github.com/jeremyipark/vision-demos/tree/main/dance_sync
+
+The implementation, interface, local-video workflow, and branding in this
+repository have been changed for this derivative WebApp.
