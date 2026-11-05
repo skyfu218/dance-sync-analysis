@@ -1,10 +1,11 @@
 import './style.css';
-import logoUrl from './logo.svg';
+import associationLogoUrl from './logo.svg';
+import marshallThinkLogoUrl from './marshall-think-logo.png';
 
 const app = document.querySelector('#app');
 app.innerHTML = `
   <header class="topbar">
-    <a class="brand" href="#" aria-label="Dance Sync 首頁"><span class="brand-pulse"></span><span>DANCE<span>SYNC</span></span></a>
+    <a class="brand" href="#" aria-label="Marshall Think Martial Sync 首頁"><img src="${marshallThinkLogoUrl}" alt="Marshall Think Martial Sync" /></a>
     <div class="top-status"><span id="modelDot" class="dot"></span><span id="modelStatus">準備載入姿態模型</span></div>
   </header>
   <main id="main">
@@ -108,8 +109,8 @@ app.innerHTML = `
     </section>
   </main>
   <footer class="footer wrap">
-    <div class="funding"><img src="${logoUrl}" alt="臺灣運動健康科技學會識別圖形"/><div><small>資助單位</small><strong>臺灣運動健康科技學會</strong></div></div>
-    <div class="credits"><span>改作自 Jeremy Park 的 dance_sync 概念與 Apache-2.0 開源專案</span><span>版本更新｜2026 年 11 月</span></div>
+    <div class="copyright-owner"><img src="${associationLogoUrl}" alt="臺灣運動健康科技學會識別圖形"/><i></i><div><strong>© 2026 臺灣運動健康科技學會</strong><span>ALL RIGHTS RESERVED.</span><small>更新日期：2026 年 11 月</small></div></div>
+    <div class="credits"><span>Marshall Think · Martial Sync</span><span>改作自 Jeremy Park 的 dance_sync 概念與 Apache-2.0 開源專案</span></div>
   </footer>
 `;
 
