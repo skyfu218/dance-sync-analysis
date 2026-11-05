@@ -14,7 +14,7 @@ app.innerHTML = `
       <h1>看見動作一致性，<br><em>不只是一個分數。</em></h1>
       <p>針對空手道型／團體型與跆拳道品勢／團體品勢，比較技術形狀、動作到位、定勢停止與隊形效果，讓教練快速定位值得回看的不同步片段。</p>
       <div class="hero-actions">
-        <label class="button primary" for="fileInput"><span>匯入套路影片</span><small>MP4 / MOV / WebM · 最長 60 秒</small></label>
+        <label class="button primary" for="fileInput"><span>匯入套路影片</span><small>MP4 / MOV / WebM · 最長 3 分鐘</small></label>
         <input id="fileInput" type="file" accept="video/*" hidden />
         <button id="demoBtn" class="button ghost"><span>觀看內建示範</span><small>3 位舞者 · 18 秒</small></button>
       </div>
@@ -123,7 +123,7 @@ const cctx = chart.getContext('2d');
 const COLORS = ['#24e5bd','#45a9ff','#ffca61','#b891ff','#ff779a','#6ee06e'];
 const CONNECTIONS = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[27,31],[24,26],[26,28],[28,32]];
 const SEGMENTS = [[23,11],[24,12],[11,13],[13,15],[12,14],[14,16],[23,25],[25,27],[24,26],[26,28],[11,12],[23,24]];
-const MAX_VIDEO_SECONDS = 60;
+const MAX_VIDEO_SECONDS = 180;
 const SEEK_TIMEOUT_MS = 8000;
 const PROFILES = {
   'karate-team': {sport:'空手道',event:'團體型',team:true,weights:{posture:.20,timing:.50,stop:.20,formation:.10},help:'整齊度優先：到位時間差 50%、技術形狀 20%、定勢停止 20%、移位一致 10%。事件會標示相對前排選手的最大快慢拍差。'},
@@ -307,7 +307,7 @@ async function analyzeVideo(){
 }
 
 $('#fileInput').onchange=e=>{const f=e.target.files?.[0];if(!f)return;demoMode=false;analysis=null;frames=[];video.src=URL.createObjectURL(f);video.load();$('#emptyStage').classList.add('hidden');video.classList.add('visible');$('#videoName').textContent=f.name;$('#videoMeta').textContent=`${(f.size/1048576).toFixed(1)} MB`;$('#modeBadge').textContent='影片已載入';$('#playBtn').disabled=false;$('#seek').disabled=false;$('#analyzeBtn').disabled=!landmarker;$('#analyzeBtn').textContent=`開始${PROFILES[profileKey].event}分析`;$('#scoreHud').classList.add('hidden');$('#eventNow').classList.add('hidden');$('#eventRail').innerHTML='';octx.clearRect(0,0,overlay.width,overlay.height);};
-video.onloadedmetadata=()=>{const valid=videoDurationIsValid();$('#videoMeta').textContent+=` · ${fmtTime(video.duration)}${valid?' · 可分析':' · 超過 60 秒'}`;$('#timeText').textContent=`0:00 / ${fmtTime(video.duration)}`;$('#analyzeBtn').disabled=!landmarker||!valid;$('#modeBadge').textContent=valid?'影片已載入':'影片過長';setModelStatus(valid?'影片可分析，最長支援 60 秒':`影片長度 ${fmtTime(video.duration)}，請裁切至 1:00 以內`,valid&&!!landmarker);};
+video.onloadedmetadata=()=>{const valid=videoDurationIsValid();$('#videoMeta').textContent+=` · ${fmtTime(video.duration)}${valid?' · 可分析':' · 超過 3 分鐘'}`;$('#timeText').textContent=`0:00 / ${fmtTime(video.duration)}`;$('#analyzeBtn').disabled=!landmarker||!valid;$('#modeBadge').textContent=valid?'影片已載入':'影片過長';setModelStatus(valid?'影片可分析，最長支援 3 分鐘':`影片長度 ${fmtTime(video.duration)}，請裁切至 3:00 以內`,valid&&!!landmarker);};
 video.ontimeupdate=()=>{if(!video.duration)return;$('#seek').value=video.currentTime/video.duration*1000;$('#timeText').textContent=`${fmtTime(video.currentTime)} / ${fmtTime(video.duration)}`;};
 video.onplay=()=>{$('#playBtn').textContent='Ⅱ';cancelAnimationFrame(playbackRaf);playbackRaf=requestAnimationFrame(playbackLoop);};video.onpause=()=>{$('#playBtn').textContent='▶';cancelAnimationFrame(playbackRaf);playbackRaf=0;if(analysis&&!busy)renderFrameAt(video.currentTime);};
 $('#playBtn').onclick=()=>video.paused?video.play():video.pause();$('#seek').oninput=e=>{if(!demoMode)jumpTo(video.duration*e.target.value/1000);};
