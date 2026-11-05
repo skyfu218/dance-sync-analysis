@@ -11,13 +11,20 @@ app.innerHTML = `
     <section class="hero wrap">
       <div class="eyebrow"><span>AI MOTION LAB</span><i></i><span>LOCAL VIDEO ANALYSIS</span></div>
       <h1>看見動作一致性，<br><em>不只是一個分數。</em></h1>
-      <p>比較同一段舞蹈中每位舞者的姿態與節奏，快速定位最整齊的落點，以及值得回看的不同步片段。</p>
+      <p>針對空手道型／團體型與跆拳道品勢／團體品勢，比較技術形狀、動作到位、定勢停止與隊形效果，讓教練快速定位值得回看的不同步片段。</p>
       <div class="hero-actions">
-        <label class="button primary" for="fileInput"><span>匯入舞蹈影片</span><small>MP4 / MOV / WebM</small></label>
+        <label class="button primary" for="fileInput"><span>匯入套路影片</span><small>MP4 / MOV / WebM</small></label>
         <input id="fileInput" type="file" accept="video/*" hidden />
         <button id="demoBtn" class="button ghost"><span>觀看內建示範</span><small>3 位舞者 · 18 秒</small></button>
       </div>
       <div class="privacy"><span>◉</span> 影片只在目前瀏覽器處理，不主動上傳或保存</div>
+      <div class="discipline-picker" aria-label="選擇分析項目">
+        <button class="discipline active" data-profile="karate-team"><small>空手道</small><strong>團體型</strong><span>到位 × 定勢 × 隊形</span></button>
+        <button class="discipline" data-profile="karate-solo"><small>空手道</small><strong>型</strong><span>節奏 × 定勢控制</span></button>
+        <button class="discipline" data-profile="taekwondo-team"><small>跆拳道</small><strong>團體品勢</strong><span>踢擊 × 落地 × 到位</span></button>
+        <button class="discipline" data-profile="taekwondo-solo"><small>跆拳道</small><strong>品勢</strong><span>節奏 × 落地控制</span></button>
+      </div>
+      <p id="profileHelp" class="profile-help"><b>團體型：</b>建議 3 人全身同框、固定正面鏡位。評分權重為到位同步 35%、技術形狀 30%、定勢停止 25%、移位一致 10%。</p>
     </section>
 
     <section class="workspace wrap">
@@ -49,14 +56,17 @@ app.innerHTML = `
 
         <aside class="summary panel">
           <div class="summary-title"><span>本段摘要</span><b id="modeBadge">等待影片</b></div>
-          <div class="hero-score"><div class="score-ring" id="scoreRing"><strong id="totalScore">—</strong><small>整體同步</small></div><p id="scoreText">完成分析後，這裡會顯示片段內的相對一致性。</p></div>
+          <div class="hero-score"><div class="score-ring" id="scoreRing"><strong id="totalScore">—</strong><small id="scoreLabel">整體同步</small></div><p id="scoreText">完成分析後，這裡會顯示片段內的相對一致性。</p></div>
           <div class="metrics">
             <div><span>姿態一致</span><strong id="postureScore">—</strong><small>身體線段角度</small></div>
-            <div><span>節奏一致</span><strong id="timingScore">—</strong><small>動作速度變化</small></div>
-            <div><span>辨識舞者</span><strong id="dancerCount">—</strong><small>同框有效人數</small></div>
+            <div><span>到位同步</span><strong id="timingScore">—</strong><small>動作速度與落點</small></div>
+            <div><span>定勢停止</span><strong id="stopScore">—</strong><small>完成瞬間穩定度</small></div>
+            <div><span>隊形穩定</span><strong id="formationScore">—</strong><small>相對站位變化</small></div>
+            <div><span>辨識選手</span><strong id="dancerCount">—</strong><small>同框有效人數</small></div>
             <div><span>有效覆蓋</span><strong id="coverageScore">—</strong><small>可比較畫面比例</small></div>
           </div>
           <div class="insight" id="insight"><span>COACH NOTE</span><p>先匯入影片或開啟示範，分析建議會出現在這裡。</p></div>
+          <div id="coachFeedback" class="coach-feedback"><div><b>教練回饋</b><span>完成分析後產生可直接對學員說明的重點。</span></div></div>
           <button id="exportBtn" class="button export" disabled>匯出分析 JSON <span>↗</span></button>
         </aside>
       </div>
@@ -65,7 +75,7 @@ app.innerHTML = `
     <section class="results wrap">
       <div class="section-head compact-head"><div><span class="section-no">02</span><p>SYNC TIMELINE</p><h2>同步趨勢與回看片段</h2></div></div>
       <article class="chart-card panel">
-        <div class="chart-key"><span><i class="cyan"></i>整體同步</span><span><i class="violet"></i>姿態</span><span><i class="green"></i>節奏</span><span class="chart-help">點選圖表可跳至該畫面</span></div>
+        <div class="chart-key"><span><i class="cyan"></i>整體同步</span><span><i class="violet"></i>技術形狀</span><span><i class="green"></i>到位同步</span><span class="chart-help">點選圖表可跳至該畫面</span></div>
         <canvas id="chart" height="260"></canvas>
         <div id="moments" class="moments"><div class="placeholder">完成分析後，系統會列出分數較低、適合回看的片段。</div></div>
       </article>
@@ -73,17 +83,18 @@ app.innerHTML = `
     </section>
 
     <section class="method wrap">
-      <div class="method-copy"><span class="section-no">03</span><p>HOW IT WORKS</p><h2>分數怎麼來？</h2><p>每位舞者先以髖部中心與肩線建立自己的座標，再比較軀幹、手臂與腿部線段角度。姿態分數衡量「形狀是否相近」；節奏分數衡量「身體線段轉動速度是否同步」。</p></div>
+      <div class="method-copy"><span class="section-no">03</span><p>HOW IT WORKS</p><h2>專項同步怎麼評？</h2><p>每位選手先以髖部中心與肩線建立自己的座標，再比較軀幹、手臂、腿部線段角度與移動速度。團體項目另外偵測共同到位、停止穩定度與相對站位；各專項使用不同權重。</p></div>
       <ol>
         <li><b>01</b><div><strong>多人姿態辨識</strong><span>偵測 33 個身體關節點並依畫面左右建立暫時身分。</span></div></li>
         <li><b>02</b><div><strong>個人尺度標準化</strong><span>使用角度而非絕對位置，降低身高與肢段比例差異。</span></div></li>
-        <li><b>03</b><div><strong>片段內校準</strong><span>以本片段的最佳與較差狀態映射 0–100；不可直接跨影片排名。</span></div></li>
+        <li><b>03</b><div><strong>到位與定勢偵測</strong><span>從快速動作轉為低速定勢時，檢查三人停止時間差與停止後晃動。</span></div></li>
+        <li><b>04</b><div><strong>片段內校準</strong><span>以本片段的最佳與較差狀態映射 0–100；不可直接跨影片排名或視為裁判分數。</span></div></li>
       </ol>
     </section>
 
     <section class="limits wrap">
       <strong>使用界線</strong>
-      <p>本工具評估同一畫面中的相對一致性，不判定舞蹈是否正確，也不分析音樂節拍。單鏡頭、遮擋、人物交叉與轉身都可能影響結果；適合作為教練回看與教學討論，不是醫療、實驗室或正式競賽評分。</p>
+      <p>本工具評估同一畫面中的影像相對一致性，不判定型／品勢技術是否符合官方規則。單鏡頭無法可靠量測拳腳實際力量、呼吸、視線、氣合、接觸品質或真實三維角度；遮擋、轉身與人物交叉可能造成追蹤換人。個人型／品勢只能回饋節奏與定勢控制，要做同步比較需加入參考表演或同框選手。本工具供教練回看，不是正式裁判評分。</p>
     </section>
   </main>
   <footer class="footer wrap">
@@ -101,16 +112,23 @@ const cctx = chart.getContext('2d');
 const COLORS = ['#24e5bd','#45a9ff','#ffca61','#b891ff','#ff779a','#6ee06e'];
 const CONNECTIONS = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[27,31],[24,26],[26,28],[28,32]];
 const SEGMENTS = [[23,11],[24,12],[11,13],[13,15],[12,14],[14,16],[23,25],[25,27],[24,26],[26,28],[11,12],[23,24]];
+const PROFILES = {
+  'karate-team': {sport:'空手道',event:'團體型',team:true,weights:{posture:.30,timing:.35,stop:.25,formation:.10},help:'建議 3 人全身同框、固定正面鏡位。評分權重為到位同步 35%、技術形狀 30%、定勢停止 25%、移位一致 10%。'},
+  'karate-solo': {sport:'空手道',event:'型',team:false,weights:{timing:.55,stop:.45},help:'單人模式評估動作節奏輪廓與定勢控制；無標準示範時不判定招式正確性。若要做同步比較，請將參考表演與學員同框。'},
+  'taekwondo-team': {sport:'跆拳道',event:'團體品勢',team:true,weights:{posture:.30,timing:.30,stop:.25,formation:.15},help:'建議全身與落地腳完整入鏡。評分權重為到位同步 30%、技術形狀 30%、定勢／落地 25%、移位一致 15%。'},
+  'taekwondo-solo': {sport:'跆拳道',event:'品勢',team:false,weights:{timing:.50,stop:.50},help:'單人模式著重節奏、踢擊回收後的停止與落地控制；未提供標準示範時不判定品勢技術正確性。'}
+};
 let landmarker = null;
 let frames = [];
 let analysis = null;
 let busy = false;
 let demoMode = false;
 let mirrored = false;
+let profileKey = 'karate-team';
 
 function setModelStatus(text, ready=false) { $('#modelStatus').textContent = text; $('#modelDot').classList.toggle('ready', ready); }
 function clamp(v,a=0,b=1){ return Math.max(a,Math.min(b,v)); }
-function mean(v){ const a=v.filter(Number.isFinite); return a.length ? a.reduce((s,n)=>s+n,0)/a.length : NaN; }
+function mean(v){ const a=(v||[]).filter(Number.isFinite); return a.length ? a.reduce((s,n)=>s+n,0)/a.length : NaN; }
 function percentile(values,p){ const a=values.filter(Number.isFinite).sort((x,y)=>x-y); if(!a.length)return NaN; const i=(a.length-1)*p,lo=Math.floor(i),hi=Math.ceil(i); return a[lo]+(a[hi]-a[lo])*(i-lo); }
 function fmtTime(s){ return `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; }
 function once(el,event){ return new Promise(resolve=>el.addEventListener(event,resolve,{once:true})); }
@@ -139,27 +157,42 @@ function features(lm){
 }
 function postureDifference(a,b){ return mean(a.map((v,i)=>Math.max(0,angleDelta(v,b[i])-4))); }
 
+function centerOf(lm){ return {x:mean([lm[11].x,lm[12].x,lm[23].x,lm[24].x]),y:mean([lm[11].y,lm[12].y,lm[23].y,lm[24].y])}; }
+function std(values){ const a=values.filter(Number.isFinite),m=mean(a); return a.length?Math.sqrt(mean(a.map(v=>(v-m)**2))):NaN; }
+function weighted(values,weights){ let sum=0,total=0;Object.entries(weights).forEach(([key,w])=>{if(Number.isFinite(values[key])){sum+=values[key]*w;total+=w;}});return total?sum/total:NaN; }
+
 function calculate(rawFrames){
-  const maxPeople=Math.max(0,...rawFrames.map(f=>f.people.length));
+  const profile=PROFILES[profileKey];
+  const selected=profile.team?rawFrames:rawFrames.map(f=>({...f,people:f.people.slice(0,1)}));
+  const maxPeople=Math.max(0,...selected.map(f=>f.people.length));
   const pairs=[]; for(let a=0;a<maxPeople;a++)for(let b=a+1;b<maxPeople;b++)pairs.push([a,b]);
-  const enriched=rawFrames.map((f,idx)=>{
+  const enriched=selected.map((f,idx)=>{
     const feat=f.people.map(features);
-    const speed=feat.map((v,p)=>idx&&rawFrames[idx-1].people[p]?v.map((x,i)=>angleDelta(x,features(rawFrames[idx-1].people[p])[i])/(f.t-rawFrames[idx-1].t||.1)):null);
+    const speed=feat.map((v,p)=>idx&&selected[idx-1].people[p]?v.map((x,i)=>angleDelta(x,features(selected[idx-1].people[p])[i])/(f.t-selected[idx-1].t||.1)):null);
+    const centers=f.people.map(centerOf);
+    const centerSpeed=centers.map((c,p)=>idx&&selected[idx-1].people[p]?Math.hypot(c.x-centerOf(selected[idx-1].people[p]).x,c.y-centerOf(selected[idx-1].people[p]).y)/(f.t-selected[idx-1].t||.1):NaN);
+    const motion=speed.map(v=>mean(v));
     const diffs=pairs.map(([a,b])=>feat[a]&&feat[b]?postureDifference(feat[a],feat[b]):NaN);
     const speedDiffs=pairs.map(([a,b])=>speed[a]&&speed[b]?mean(speed[a].map((x,i)=>Math.abs(x-speed[b][i]))):NaN);
-    return {...f,feat,speed,postureDiff:mean(diffs),timingDiff:mean(speedDiffs),pairDiffs:diffs};
+    const formationDiffs=pairs.map(([a,b])=>Number.isFinite(centerSpeed[a])&&Number.isFinite(centerSpeed[b])?Math.abs(centerSpeed[a]-centerSpeed[b]):NaN);
+    return {...f,feat,speed,motion,groupMotion:mean(motion),postureDiff:mean(diffs),timingDiff:mean(speedDiffs),stopDiff:profile.team?std(motion):mean(motion),formationDiff:mean(formationDiffs),pairDiffs:diffs};
   });
   const pBest=percentile(enriched.map(f=>f.postureDiff),.1),pBad=percentile(enriched.map(f=>f.postureDiff),.8);
   const tBest=percentile(enriched.map(f=>f.timingDiff),.1),tBad=percentile(enriched.map(f=>f.timingDiff),.8);
+  const motionLow=percentile(enriched.map(f=>f.groupMotion),.35);
+  const stopFrames=enriched.filter(f=>f.groupMotion<=motionLow);
+  const sBest=percentile(stopFrames.map(f=>f.stopDiff),.1),sBad=percentile(stopFrames.map(f=>f.stopDiff),.8);
+  const fBest=percentile(enriched.map(f=>f.formationDiff),.1),fBad=percentile(enriched.map(f=>f.formationDiff),.8);
   const score=(v,best,bad)=>Number.isFinite(v)&&bad>best?100*clamp(1-(v-best)/(bad-best)):NaN;
-  enriched.forEach(f=>{f.posture=score(f.postureDiff,pBest,pBad);f.timing=score(f.timingDiff,tBest,tBad);f.score=mean([f.posture,f.timing]);});
+  const soloMotionHigh=percentile(enriched.map(f=>f.groupMotion),.8)||1;
+  enriched.forEach(f=>{f.posture=profile.team?score(f.postureDiff,pBest,pBad):NaN;f.timing=profile.team?score(f.timingDiff,tBest,tBad):100*clamp(Math.abs(f.groupMotion-motionLow)/(soloMotionHigh-motionLow||1));f.stop=f.groupMotion<=motionLow?score(f.stopDiff,sBest,sBad):NaN;f.formation=profile.team?score(f.formationDiff,fBest,fBad):NaN;f.score=weighted(f,profile.weights);});
   const smooth=(key,i)=>mean(enriched.slice(Math.max(0,i-2),Math.min(enriched.length,i+3)).map(f=>f[key]));
-  enriched.forEach((f,i)=>{f.postureSmooth=smooth('posture',i);f.timingSmooth=smooth('timing',i);f.scoreSmooth=mean([f.postureSmooth,f.timingSmooth]);});
+  enriched.forEach((f,i)=>{f.postureSmooth=smooth('posture',i);f.timingSmooth=smooth('timing',i);f.stopSmooth=smooth('stop',i);f.formationSmooth=smooth('formation',i);f.scoreSmooth=weighted({posture:f.postureSmooth,timing:f.timingSmooth,stop:f.stopSmooth,formation:f.formationSmooth},profile.weights);});
   const pairStats=pairs.map((pair,pi)=>({pair,score:mean(enriched.map(f=>Number.isFinite(f.pairDiffs[pi])?score(f.pairDiffs[pi],pBest,pBad):NaN))}));
   const valid=enriched.filter(f=>Number.isFinite(f.score));
   const low=[]; let active=null;
   valid.forEach(f=>{ if(f.scoreSmooth<48){ if(!active)active={start:f.t,end:f.t,min:f}; active.end=f.t;if(f.scoreSmooth<active.min.scoreSmooth)active.min=f; } else if(active){if(active.end-active.start>.35)low.push(active);active=null;} }); if(active)low.push(active);
-  return {frames:enriched,maxPeople,pairs,pairStats,posture:mean(valid.map(f=>f.postureSmooth)),timing:mean(valid.map(f=>f.timingSmooth)),score:mean(valid.map(f=>f.scoreSmooth)),coverage:rawFrames.length?valid.length/rawFrames.length*100:0,low,anchors:{pBest,pBad,tBest,tBad}};
+  return {frames:enriched,maxPeople,pairs,pairStats,posture:mean(valid.map(f=>f.postureSmooth)),timing:mean(valid.map(f=>f.timingSmooth)),stop:mean(valid.map(f=>f.stopSmooth)),formation:mean(valid.map(f=>f.formationSmooth)),score:mean(valid.map(f=>f.scoreSmooth)),coverage:selected.length?valid.length/selected.length*100:0,low,profileKey,anchors:{pBest,pBad,tBest,tBad,sBest,sBad,fBest,fBad,motionLow}};
 }
 
 function resizeCanvas(canvas){ const r=canvas.getBoundingClientRect(),d=devicePixelRatio||1;canvas.width=Math.max(1,Math.round(r.width*d));canvas.height=Math.max(1,Math.round(r.height*d));return {w:r.width,h:r.height,d}; }
@@ -177,10 +210,20 @@ function drawChart(){
   cctx.fillStyle='#748d86';cctx.textAlign='center';for(let i=0;i<=4;i++){const t=maxT*i/4;cctx.fillText(fmtTime(t),pad.l+(w-pad.l-pad.r)*i/4,h-7);}
 }
 function renderResults(){
-  if(!analysis)return; const n=v=>Number.isFinite(v)?`${Math.round(v)}`:'—';
-  $('#totalScore').textContent=n(analysis.score);$('#postureScore').textContent=n(analysis.posture);$('#timingScore').textContent=n(analysis.timing);$('#dancerCount').textContent=analysis.maxPeople;$('#coverageScore').textContent=`${Math.round(analysis.coverage)}%`;$('#scoreRing').style.setProperty('--score',`${analysis.score||0}%`);$('#modeBadge').textContent=demoMode?'示範資料':'本機分析';
+  if(!analysis)return; const n=v=>Number.isFinite(v)?`${Math.round(v)}`:'—',profile=PROFILES[analysis.profileKey];
+  $('#totalScore').textContent=n(analysis.score);$('#postureScore').textContent=n(analysis.posture);$('#timingScore').textContent=n(analysis.timing);$('#stopScore').textContent=n(analysis.stop);$('#formationScore').textContent=n(analysis.formation);$('#dancerCount').textContent=analysis.maxPeople;$('#coverageScore').textContent=`${Math.round(analysis.coverage)}%`;$('#scoreRing').style.setProperty('--score',`${analysis.score||0}%`);$('#scoreLabel').textContent=profile.team?'整體同步':'節奏控制';$('#modeBadge').textContent=demoMode?`${profile.event}示範`:`${profile.event}分析`;
   const label=analysis.score>=75?'整體一致性較高':analysis.score>=55?'整體同步中等':'建議優先回看';$('#scoreText').textContent=`${label}。這是本影片片段內校準的相對分數，不適合與其他影片直接比較。`;
-  const focus=analysis.posture<analysis.timing?'動作形狀差異':'節奏落差';$('#insight p').textContent=analysis.low.length?`共找到 ${analysis.low.length} 段低同步區間；本段主要差異來自${focus}，可先由第一個標記開始回看。`:'目前沒有連續低於門檻的區間，仍可用趨勢圖檢查個別落點。';
+  const components=[['技術形狀',analysis.posture,'posture'],['到位節奏',analysis.timing,'timing'],['定勢停止',analysis.stop,'stop'],['移位一致',analysis.formation,'formation']].filter(x=>Number.isFinite(x[1])).sort((a,b)=>a[1]-b[1]);
+  const focus=components[0]?.[0]||'節奏控制';$('#insight p').textContent=analysis.low.length?`共找到 ${analysis.low.length} 段低同步區間；本段主要差異來自${focus}，可先由第一個標記開始回看。`:'目前沒有連續低於門檻的區間，仍可用趨勢圖檢查個別落點。';
+  const advice={
+    posture:profile.sport==='空手道'?'三人的立姿深度、手技終末角度與軀幹方向要同時定住。':'統一抬膝高度、踢擊伸展角度，以及回收後的軀幹方向。',
+    timing:'把動作拆成「預備—發力—到位」三拍，先統一最後到位點，再逐步加速。',
+    stop:profile.sport==='空手道'?'到位後維持 0.3–0.5 秒，檢查是否有人提早鬆開或仍在晃動。':'踢擊回收與落地後維持穩定，避免有人二次踏步或上身持續修正。',
+    formation:'先在地面標示起步腳與落點；移位距離不同時，也要讓啟動與停止時間一致。'
+  };
+  const feedback=components.slice(0,2).map((c,i)=>`<li><b>${i?'第二重點':'優先修正'}｜${c[0]} ${Math.round(c[1])}</b><span>${advice[c[2]]}</span></li>`).join('');
+  const caveat=profile.team?`目前有效辨識 ${analysis.maxPeople} 人；${analysis.maxPeople<3?'未達團體項目建議 3 人，分數僅供測試。':'可用低分片段逐一口頭回饋。'}`:'單人分數只描述本片節奏與停止控制，不代表型／品勢技術得分。';
+  $('#coachFeedback').innerHTML=`<div><b>${profile.sport}${profile.event}教練回饋</b><span>${caveat}</span></div><ul>${feedback}</ul>`;
   $('#pairGrid').innerHTML=analysis.pairStats.length?analysis.pairStats.map((p,i)=>`<article class="pair-card panel"><div><span style="--c:${COLORS[p.pair[0]]}">D${p.pair[0]+1}</span><i>×</i><span style="--c:${COLORS[p.pair[1]]}">D${p.pair[1]+1}</span></div><strong>${n(p.score)}</strong><small>姿態相似度</small><b style="width:${clamp(p.score||0,0,100)}%"></b></article>`).join(''):'<article class="pair-placeholder panel">至少需要 2 位可辨識舞者</article>';
   $('#moments').innerHTML=analysis.low.length?analysis.low.slice(0,6).map((m,i)=>`<button data-time="${m.min.t}"><b>${String(i+1).padStart(2,'0')}</b><span><strong>${fmtTime(m.start)}–${fmtTime(m.end)}</strong><small>最低同步 ${Math.round(m.min.scoreSmooth)} · 點擊回看</small></span><i>↗</i></button>`).join(''):'<div class="placeholder">沒有偵測到連續低同步片段。</div>';
   $('#moments').querySelectorAll('button').forEach(b=>b.onclick=()=>jumpTo(+b.dataset.time));drawChart();$('#exportBtn').disabled=false;
@@ -200,16 +243,17 @@ async function analyzeVideo(){
   try{for(let t=0;t<video.duration;t+=step){video.currentTime=Math.min(t,video.duration-.02);await once(video,'seeked');const result=landmarker.detectForVideo(video,t*1000+1);frames.push({t,people:assignPeople(result.landmarks||[])});const pct=Math.round(t/video.duration*100);$('#progress span').style.width=`${pct}%`;$('#progressText').textContent=`${pct}%`;if(frames.length%8===0)await new Promise(r=>setTimeout(r,0));}analysis=calculate(frames);renderResults();$('#scoreHud').classList.remove('hidden');jumpTo(0);setModelStatus('分析完成',true);}catch(e){console.error(e);setModelStatus('分析中斷，請改用較短影片');}finally{video.currentTime=old;$('#progress').classList.add('hidden');$('#analyzeBtn').disabled=false;busy=false;}
 }
 
-$('#fileInput').onchange=e=>{const f=e.target.files?.[0];if(!f)return;demoMode=false;analysis=null;frames=[];video.src=URL.createObjectURL(f);video.load();$('#emptyStage').classList.add('hidden');video.classList.add('visible');$('#videoName').textContent=f.name;$('#videoMeta').textContent=`${(f.size/1048576).toFixed(1)} MB`;$('#modeBadge').textContent='影片已載入';$('#playBtn').disabled=false;$('#seek').disabled=false;$('#analyzeBtn').disabled=!landmarker;$('#scoreHud').classList.add('hidden');octx.clearRect(0,0,overlay.width,overlay.height);};
+$('#fileInput').onchange=e=>{const f=e.target.files?.[0];if(!f)return;demoMode=false;analysis=null;frames=[];video.src=URL.createObjectURL(f);video.load();$('#emptyStage').classList.add('hidden');video.classList.add('visible');$('#videoName').textContent=f.name;$('#videoMeta').textContent=`${(f.size/1048576).toFixed(1)} MB`;$('#modeBadge').textContent='影片已載入';$('#playBtn').disabled=false;$('#seek').disabled=false;$('#analyzeBtn').disabled=!landmarker;$('#analyzeBtn').textContent=`開始${PROFILES[profileKey].event}分析`;$('#scoreHud').classList.add('hidden');octx.clearRect(0,0,overlay.width,overlay.height);};
 video.onloadedmetadata=()=>{$('#videoMeta').textContent+=` · ${fmtTime(video.duration)}`;$('#timeText').textContent=`0:00 / ${fmtTime(video.duration)}`;};
 video.ontimeupdate=()=>{if(!video.duration)return;$('#seek').value=video.currentTime/video.duration*1000;$('#timeText').textContent=`${fmtTime(video.currentTime)} / ${fmtTime(video.duration)}`;if(analysis&&!busy)jumpTo(video.currentTime);};
 video.onplay=()=>{$('#playBtn').textContent='Ⅱ';};video.onpause=()=>{$('#playBtn').textContent='▶';};
 $('#playBtn').onclick=()=>video.paused?video.play():video.pause();$('#seek').oninput=e=>{video.currentTime=video.duration*e.target.value/1000;};
 $('#mirrorBtn').onclick=()=>{mirrored=!mirrored;$('#mirrorBtn').setAttribute('aria-pressed',mirrored);video.classList.toggle('mirrored',mirrored);overlay.classList.toggle('mirrored',mirrored);};
-$('#demoBtn').onclick=()=>{demoMode=true;video.removeAttribute('src');video.load();$('#emptyStage').classList.remove('hidden');$('#emptyStage').innerHTML='<div class="demo-people"><i></i><i></i><i></i></div><strong>內建三人舞蹈示範</strong><span>含兩段刻意加入的節奏與姿態差異</span>';$('#videoName').textContent='內建示範 · 模擬骨架資料';$('#videoMeta').textContent='18 秒';$('#modeBadge').textContent='示範資料';$('#analyzeBtn').disabled=false;$('#analyzeBtn').textContent='分析示範';$('#playBtn').disabled=true;$('#seek').disabled=false;$('#seek').value=0;analysis=calculate(makeDemo());renderResults();$('#scoreHud').classList.remove('hidden');drawDemoAt(0);};
+$('#demoBtn').onclick=()=>{demoMode=true;video.removeAttribute('src');video.load();$('#emptyStage').classList.remove('hidden');$('#emptyStage').innerHTML='<div class="demo-people"><i></i><i></i><i></i></div><strong>內建三人套路同步示範</strong><span>含兩段刻意加入的節奏與姿態差異</span>';$('#videoName').textContent='內建示範 · 模擬骨架資料';$('#videoMeta').textContent='18 秒';$('#modeBadge').textContent='示範資料';$('#analyzeBtn').disabled=false;$('#analyzeBtn').textContent='分析示範';$('#playBtn').disabled=true;$('#seek').disabled=false;$('#seek').value=0;frames=makeDemo();analysis=calculate(frames);renderResults();$('#scoreHud').classList.remove('hidden');drawDemoAt(0);};
 $('#seek').addEventListener('input',e=>{if(demoMode){const t=18*e.target.value/1000;$('#timeText').textContent=`${fmtTime(t)} / 0:18`;drawDemoAt(t);}});
 $('#analyzeBtn').onclick=analyzeVideo;
-$('#exportBtn').onclick=()=>{if(!analysis)return;const payload={tool:'Dance Sync 多人舞蹈同步分析',producer:'臺灣運動健康科技學會',updated:'2026-11',mode:demoMode?'simulated-demo':'local-video',method:'clip-relative posture and movement-speed agreement',limits:['relative agreement, not choreography correctness','clip-relative scores cannot be compared across videos','single-camera 2D pose','no audio or beat analysis'],summary:{dancers:analysis.maxPeople,overall:analysis.score,posture:analysis.posture,timing:analysis.timing,coverage:analysis.coverage},reviewMoments:analysis.low.map(m=>({start:m.start,end:m.end,lowestTime:m.min.t,lowestScore:m.min.scoreSmooth})),pairs:analysis.pairStats,series:analysis.frames.map(f=>({t:f.t,overall:f.scoreSmooth,posture:f.postureSmooth,timing:f.timingSmooth,people:f.people.length}))};const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));a.download=`dance-sync-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
+$('#exportBtn').onclick=()=>{if(!analysis)return;const profile=PROFILES[analysis.profileKey];const payload={tool:'Dance Sync 武術套路同步分析',producer:'臺灣運動健康科技學會',updated:'2026-11',discipline:{sport:profile.sport,event:profile.event,profile:analysis.profileKey},mode:demoMode?'simulated-demo':'local-video',method:'clip-relative 2D pose, arrival, stop and formation-motion agreement',limits:['relative visual agreement, not official judging or technique correctness','clip-relative scores cannot be compared across videos','single-camera 2D pose; occlusion and crossings can swap identities','no force, breathing, gaze, kiai or audio analysis'],summary:{athletes:analysis.maxPeople,overall:analysis.score,posture:analysis.posture,timing:analysis.timing,stop:analysis.stop,formation:analysis.formation,coverage:analysis.coverage},reviewMoments:analysis.low.map(m=>({start:m.start,end:m.end,lowestTime:m.min.t,lowestScore:m.min.scoreSmooth})),pairs:analysis.pairStats,series:analysis.frames.map(f=>({t:f.t,overall:f.scoreSmooth,posture:f.postureSmooth,timing:f.timingSmooth,stop:f.stopSmooth,formation:f.formationSmooth,people:f.people.length}))};const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));a.download=`martial-sync-${analysis.profileKey}-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
 chart.onclick=e=>{if(!analysis?.frames.length)return;const r=chart.getBoundingClientRect(),pct=clamp((e.clientX-r.left-34)/(r.width-48));jumpTo(pct*analysis.frames.at(-1).t);if(demoMode){$('#seek').value=pct*1000;}else{$('#seek').value=pct*1000;}};
 window.addEventListener('resize',()=>{drawChart();if(analysis?.frames.length)jumpTo(demoMode?18*$('#seek').value/1000:video.currentTime||0);});
+document.querySelectorAll('.discipline').forEach(button=>button.onclick=()=>{profileKey=button.dataset.profile;document.querySelectorAll('.discipline').forEach(b=>b.classList.toggle('active',b===button));const profile=PROFILES[profileKey];$('#profileHelp').innerHTML=`<b>${profile.event}：</b>${profile.help}`;$('#analyzeBtn').textContent=demoMode?'分析示範':`開始${profile.event}分析`;if(frames.length){analysis=calculate(frames);renderResults();if(analysis.frames.length)jumpTo(analysis.frames[0].t);}});
 drawChart();loadModel();
