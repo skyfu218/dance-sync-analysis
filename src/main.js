@@ -1,5 +1,5 @@
 import './style.css';
-import associationLogoUrl from './logo.svg';
+import associationLogoUrl from './taiwan-sports-health-technology-society-logo.png';
 import marshallThinkLogoUrl from './marshall-think-logo.png';
 
 const app = document.querySelector('#app');
