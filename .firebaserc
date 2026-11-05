@@ -5,6 +5,9 @@
       "hosting": {
         "dance-sync": [
           "dance-sync-analysis-skyfu218"
+        ],
+        "martial-sync": [
+          "martialsync"
         ]
       }
     }

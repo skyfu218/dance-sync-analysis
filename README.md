@@ -40,6 +40,10 @@ pnpm preview
 
 ## Firebase Hosting
 
+正式網址：[`https://martialsync.web.app`](https://martialsync.web.app)
+
+舊網址 `https://dance-sync-analysis-skyfu218.web.app` 暫時保留作為回復入口；目前發布目標已切換為 `martial-sync`。
+
 `firebase.json` 已設定發布 `dist/`。部署前須先確認目前 Firebase CLI 登入的是 **SKYFU218 對應帳號**，並確認要使用的 Firebase project 與 Hosting site，之後才執行：
 
 ```bash
