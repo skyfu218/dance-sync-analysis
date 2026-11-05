@@ -44,10 +44,15 @@ app.innerHTML = `
           </div>
           <div class="controls">
             <button id="playBtn" class="round" disabled aria-label="播放或暫停">▶</button>
-            <input id="seek" type="range" min="0" max="1000" value="0" disabled aria-label="影片時間軸" />
+            <div class="timeline-wrap">
+              <input id="seek" type="range" min="0" max="1000" value="0" disabled aria-label="影片時間軸" />
+              <div id="eventRail" class="event-rail" aria-label="分析事件點"></div>
+            </div>
             <span id="timeText">0:00 / 0:00</span>
+            <label class="speed-control">回放<select id="playbackRate" aria-label="慢速回放速度"><option value="0.5">1/2×</option><option value="0.25">1/4×</option><option value="0.125">1/8×</option><option value="0.0625">1/16×</option></select></label>
             <button id="mirrorBtn" class="mini" aria-pressed="false">鏡像</button>
           </div>
+          <div id="eventNow" class="event-now hidden"><b>EVENT</b><span></span></div>
           <div class="action-row">
             <label>分析取樣<select id="sampleRate"><option value="8">8 FPS · 快速</option><option value="10" selected>10 FPS · 標準</option><option value="12">12 FPS · 細緻</option></select></label>
             <button id="analyzeBtn" class="button primary compact" disabled>開始分析</button>
@@ -77,6 +82,7 @@ app.innerHTML = `
       <article class="chart-card panel">
         <div class="chart-key"><span><i class="cyan"></i>整體同步</span><span><i class="violet"></i>技術形狀</span><span><i class="green"></i>到位同步</span><span class="chart-help">點選圖表可跳至該畫面</span></div>
         <canvas id="chart" height="260"></canvas>
+        <div id="reviewSummary" class="review-summary"><b>自動 Review</b><span>完成分析後，系統會依嚴重度整理優先檢視事件。</span></div>
         <div id="moments" class="moments"><div class="placeholder">完成分析後，系統會列出分數較低、適合回看的片段。</div></div>
       </article>
       <div class="pair-grid" id="pairGrid"><article class="pair-placeholder panel">舞者兩兩比較會顯示在這裡</article></div>
@@ -128,6 +134,7 @@ let demoMode = false;
 let mirrored = false;
 let profileKey = 'karate-team';
 let lastDetectionTimestamp = 0;
+let playbackRaf = 0;
 
 function setModelStatus(text, ready=false) { $('#modelStatus').textContent = text; $('#modelDot').classList.toggle('ready', ready); }
 function clamp(v,a=0,b=1){ return Math.max(a,Math.min(b,v)); }
@@ -210,7 +217,9 @@ function calculate(rawFrames){
   const valid=enriched.filter(f=>Number.isFinite(f.score));
   const low=[]; let active=null;
   valid.forEach(f=>{ if(f.scoreSmooth<48){ if(!active)active={start:f.t,end:f.t,min:f}; active.end=f.t;if(f.scoreSmooth<active.min.scoreSmooth)active.min=f; } else if(active){if(active.end-active.start>.35)low.push(active);active=null;} }); if(active)low.push(active);
-  return {frames:enriched,maxPeople,pairs,pairStats,posture:mean(valid.map(f=>f.postureSmooth)),timing:mean(valid.map(f=>f.timingSmooth)),stop:mean(valid.map(f=>f.stopSmooth)),formation:mean(valid.map(f=>f.formationSmooth)),score:mean(valid.map(f=>f.scoreSmooth)),coverage:selected.length?valid.length/selected.length*100:0,low,profileKey,anchors:{pBest,pBad,tBest,tBad,sBest,sBad,fBest,fBad,motionLow}};
+  const componentNames={posture:'技術形狀',timing:'到位慢拍',stop:'定勢停止',formation:'移位一致'};
+  const events=low.map((m,i)=>{const ranked=[['posture',m.min.postureSmooth],['timing',m.min.timingSmooth],['stop',m.min.stopSmooth],['formation',m.min.formationSmooth]].filter(x=>Number.isFinite(x[1])).sort((a,b)=>a[1]-b[1]);const issue=ranked[0]?.[0]||'timing',minimum=Math.round(m.min.scoreSmooth);return {id:i+1,start:m.start,end:m.end,at:m.min.t,replayStart:Math.max(0,m.start-.6),score:minimum,issue,label:componentNames[issue],severity:minimum<20?'嚴重':minimum<35?'明顯':'需複查'};});
+  return {frames:enriched,maxPeople,pairs,pairStats,posture:mean(valid.map(f=>f.postureSmooth)),timing:mean(valid.map(f=>f.timingSmooth)),stop:mean(valid.map(f=>f.stopSmooth)),formation:mean(valid.map(f=>f.formationSmooth)),score:mean(valid.map(f=>f.scoreSmooth)),coverage:selected.length?valid.length/selected.length*100:0,low,events,profileKey,anchors:{pBest,pBad,tBest,tBad,sBest,sBad,fBest,fBad,motionLow}};
 }
 
 function resizeCanvas(canvas){ const r=canvas.getBoundingClientRect(),d=devicePixelRatio||1;canvas.width=Math.max(1,Math.round(r.width*d));canvas.height=Math.max(1,Math.round(r.height*d));return {w:r.width,h:r.height,d}; }
@@ -243,17 +252,24 @@ function renderResults(){
   const caveat=profile.team?`目前有效辨識 ${analysis.maxPeople} 人；${analysis.maxPeople<3?'未達團體項目建議 3 人，分數僅供測試。':'可用低分片段逐一口頭回饋。'}`:'單人分數只描述本片節奏與停止控制，不代表型／品勢技術得分。';
   $('#coachFeedback').innerHTML=`<div><b>${profile.sport}${profile.event}教練回饋</b><span>${caveat}</span></div><ul>${feedback}</ul>`;
   $('#pairGrid').innerHTML=analysis.pairStats.length?analysis.pairStats.map((p,i)=>`<article class="pair-card panel"><div><span style="--c:${COLORS[p.pair[0]]}">D${p.pair[0]+1}</span><i>×</i><span style="--c:${COLORS[p.pair[1]]}">D${p.pair[1]+1}</span></div><strong>${n(p.score)}</strong><small>姿態相似度</small><b style="width:${clamp(p.score||0,0,100)}%"></b></article>`).join(''):'<article class="pair-placeholder panel">至少需要 2 位可辨識舞者</article>';
-  $('#moments').innerHTML=analysis.low.length?analysis.low.slice(0,6).map((m,i)=>`<button data-time="${m.min.t}"><b>${String(i+1).padStart(2,'0')}</b><span><strong>${fmtTime(m.start)}–${fmtTime(m.end)}</strong><small>最低同步 ${Math.round(m.min.scoreSmooth)} · 點擊回看</small></span><i>↗</i></button>`).join(''):'<div class="placeholder">沒有偵測到連續低同步片段。</div>';
-  $('#moments').querySelectorAll('button').forEach(b=>b.onclick=()=>jumpTo(+b.dataset.time));drawChart();$('#exportBtn').disabled=false;
+  const severe=analysis.events.filter(e=>e.severity==='嚴重').length,mainIssue=analysis.events.reduce((acc,e)=>(acc[e.label]=(acc[e.label]||0)+1,acc),{}),topIssue=Object.entries(mainIssue).sort((a,b)=>b[1]-a[1])[0]?.[0];
+  $('#reviewSummary').innerHTML=`<b>自動 Review｜${analysis.events.length} 個事件${severe?` · ${severe} 個嚴重`:''}</b><span>${analysis.events.length?`建議先看紅色事件；本片最常見問題為${topIssue}。點擊事件會從前 0.6 秒以目前慢速設定回放。`:'沒有形成連續低同步事件，可從趨勢圖抽查動作到位。'}</span>`;
+  $('#moments').innerHTML=analysis.events.length?analysis.events.slice(0,8).map(e=>`<button class="severity-${e.severity}" data-event="${e.id-1}"><b>E${String(e.id).padStart(2,'0')}</b><span><strong>${fmtTime(e.start)}–${fmtTime(e.end)} · ${e.label}</strong><small>${e.severity}｜最低同步 ${e.score} · 慢速回放</small></span><i>▶</i></button>`).join(''):'<div class="placeholder">沒有偵測到連續低同步片段。</div>';
+  $('#moments').querySelectorAll('button').forEach(b=>b.onclick=()=>replayEvent(analysis.events[+b.dataset.event]));renderEventRail();drawChart();$('#exportBtn').disabled=false;
 }
-function jumpTo(t){video.currentTime=t;if(demoMode)drawDemoAt(t);else{const f=analysis.frames.reduce((a,b)=>Math.abs(b.t-t)<Math.abs(a.t-t)?b:a);drawPoses(f.people);$('#hudScore').textContent=Math.round(f.scoreSmooth||0);} }
+function frameAt(t){return analysis?.frames?.reduce((a,b)=>Math.abs(b.t-t)<Math.abs(a.t-t)?b:a);}
+function renderFrameAt(t){const f=frameAt(t);if(!f)return;drawPoses(f.people);$('#hudScore').textContent=Math.round(f.scoreSmooth||0);const event=analysis.events?.find(e=>t>=e.start&&t<=e.end);$('#eventNow').classList.toggle('hidden',!event);if(event)$('#eventNow span').textContent=`E${String(event.id).padStart(2,'0')} · ${event.severity} · ${event.label} · ${fmtTime(event.start)}–${fmtTime(event.end)}`;document.querySelectorAll('.event-marker').forEach((m,i)=>m.classList.toggle('current',event?.id===i+1));}
+function jumpTo(t){const max=demoMode?18:video.duration||analysis?.frames?.at(-1)?.t||0,tSafe=clamp(t,0,max);if(!demoMode)video.currentTime=tSafe;$('#seek').value=max?tSafe/max*1000:0;demoMode?drawDemoAt(tSafe):renderFrameAt(tSafe);}
+function replayEvent(event){if(!event)return;video.pause();jumpTo(event.replayStart);if(!demoMode)video.play().catch(()=>{});}
+function renderEventRail(){const max=demoMode?18:video.duration||analysis?.frames?.at(-1)?.t||1;$('#eventRail').innerHTML=(analysis.events||[]).map(e=>`<button class="event-marker severity-${e.severity}" style="left:${clamp(e.at/max)*100}%" data-event="${e.id-1}" title="E${String(e.id).padStart(2,'0')} ${e.severity}｜${e.label}｜${fmtTime(e.at)}" aria-label="事件 ${e.id}，${e.severity}，${e.label}，${fmtTime(e.at)}"></button>`).join('');$('#eventRail').querySelectorAll('button').forEach(b=>b.onclick=()=>replayEvent(analysis.events[+b.dataset.event]));}
+function playbackLoop(){if(video.paused||video.ended){playbackRaf=0;return;}renderFrameAt(video.currentTime);playbackRaf=requestAnimationFrame(playbackLoop);}
 
 function demoPose(cx,phase,variance=0){
   const p=Array.from({length:33},()=>({x:cx,y:.5,z:0,visibility:1}));const sway=Math.sin(phase)*.065,up=Math.sin(phase*2)*.025;const hand=Math.sin(phase)*.11+variance;
   Object.assign(p[0],{x:cx+sway*.25,y:.20+up});Object.assign(p[11],{x:cx-.045+sway,y:.34+up});Object.assign(p[12],{x:cx+.045+sway,y:.34+up});Object.assign(p[13],{x:cx-.10+sway-hand,y:.44-up});Object.assign(p[14],{x:cx+.10+sway+hand,y:.44-up});Object.assign(p[15],{x:cx-.15+sway-hand*1.4,y:.31-up*2});Object.assign(p[16],{x:cx+.15+sway+hand*1.4,y:.31-up*2});Object.assign(p[23],{x:cx-.035,y:.57+up});Object.assign(p[24],{x:cx+.035,y:.57+up});Object.assign(p[25],{x:cx-.06-sway*.35,y:.75-up});Object.assign(p[26],{x:cx+.06-sway*.35,y:.75-up});Object.assign(p[27],{x:cx-.09-sway*.55,y:.94});Object.assign(p[28],{x:cx+.09-sway*.55,y:.94});p[31]={...p[27]};p[32]={...p[28]};return p;
 }
 function makeDemo(){const out=[];for(let t=0;t<=18;t+=.1){let drift=t>6&&t<9?.65:0;let miss=t>13&&t<15?.55:0;out.push({t,people:[demoPose(.22,t*2.2),demoPose(.50,t*2.2+drift),demoPose(.78,t*2.2+miss,t>13&&t<15?.045:0)]});}return out;}
-function drawDemoAt(t){const f=analysis?.frames.reduce((a,b)=>Math.abs(b.t-t)<Math.abs(a.t-t)?b:a);if(f){drawPoses(f.people);$('#hudScore').textContent=Math.round(f.scoreSmooth||0);} }
+function drawDemoAt(t){const f=frameAt(t);if(f){drawPoses(f.people);$('#hudScore').textContent=Math.round(f.scoreSmooth||0);} }
 
 async function analyzeVideo(){
   if(busy)return;if(demoMode){frames=makeDemo();analysis=calculate(frames);renderResults();$('#scoreHud').classList.remove('hidden');drawDemoAt(0);return;}if(!landmarker||!video.duration)return;
@@ -262,16 +278,17 @@ async function analyzeVideo(){
   try{let index=0;for(let t=0;t<video.duration;t+=step,index++){await seekVideo(t);const timestamp=runBase+index*step*1000;const result=landmarker.detectForVideo(video,timestamp);lastDetectionTimestamp=timestamp;frames.push({t,people:assignPeople(result.landmarks||[])});const pct=Math.min(100,Math.round((index+1)/total*100));$('#progress span').style.width=`${pct}%`;$('#progressText').textContent=`${pct}% · ${index+1}/${total}`;if(frames.length%6===0)await new Promise(r=>setTimeout(r,0));}analysis=calculate(frames);renderResults();$('#scoreHud').classList.remove('hidden');jumpTo(0);setModelStatus(`分析完成 · ${frames.length} 個取樣影格`,true);}catch(e){console.error(e);setModelStatus(`分析中斷：${e.message||'無法讀取影片影格'}`);}finally{video.currentTime=Math.min(old,video.duration||0);$('#progress').classList.add('hidden');$('#analyzeBtn').disabled=!videoDurationIsValid();busy=false;}
 }
 
-$('#fileInput').onchange=e=>{const f=e.target.files?.[0];if(!f)return;demoMode=false;analysis=null;frames=[];video.src=URL.createObjectURL(f);video.load();$('#emptyStage').classList.add('hidden');video.classList.add('visible');$('#videoName').textContent=f.name;$('#videoMeta').textContent=`${(f.size/1048576).toFixed(1)} MB`;$('#modeBadge').textContent='影片已載入';$('#playBtn').disabled=false;$('#seek').disabled=false;$('#analyzeBtn').disabled=!landmarker;$('#analyzeBtn').textContent=`開始${PROFILES[profileKey].event}分析`;$('#scoreHud').classList.add('hidden');octx.clearRect(0,0,overlay.width,overlay.height);};
+$('#fileInput').onchange=e=>{const f=e.target.files?.[0];if(!f)return;demoMode=false;analysis=null;frames=[];video.src=URL.createObjectURL(f);video.load();$('#emptyStage').classList.add('hidden');video.classList.add('visible');$('#videoName').textContent=f.name;$('#videoMeta').textContent=`${(f.size/1048576).toFixed(1)} MB`;$('#modeBadge').textContent='影片已載入';$('#playBtn').disabled=false;$('#seek').disabled=false;$('#analyzeBtn').disabled=!landmarker;$('#analyzeBtn').textContent=`開始${PROFILES[profileKey].event}分析`;$('#scoreHud').classList.add('hidden');$('#eventNow').classList.add('hidden');$('#eventRail').innerHTML='';octx.clearRect(0,0,overlay.width,overlay.height);};
 video.onloadedmetadata=()=>{const valid=videoDurationIsValid();$('#videoMeta').textContent+=` · ${fmtTime(video.duration)}${valid?' · 可分析':' · 超過 60 秒'}`;$('#timeText').textContent=`0:00 / ${fmtTime(video.duration)}`;$('#analyzeBtn').disabled=!landmarker||!valid;$('#modeBadge').textContent=valid?'影片已載入':'影片過長';setModelStatus(valid?'影片可分析，最長支援 60 秒':`影片長度 ${fmtTime(video.duration)}，請裁切至 1:00 以內`,valid&&!!landmarker);};
-video.ontimeupdate=()=>{if(!video.duration)return;$('#seek').value=video.currentTime/video.duration*1000;$('#timeText').textContent=`${fmtTime(video.currentTime)} / ${fmtTime(video.duration)}`;if(analysis&&!busy)jumpTo(video.currentTime);};
-video.onplay=()=>{$('#playBtn').textContent='Ⅱ';};video.onpause=()=>{$('#playBtn').textContent='▶';};
-$('#playBtn').onclick=()=>video.paused?video.play():video.pause();$('#seek').oninput=e=>{video.currentTime=video.duration*e.target.value/1000;};
+video.ontimeupdate=()=>{if(!video.duration)return;$('#seek').value=video.currentTime/video.duration*1000;$('#timeText').textContent=`${fmtTime(video.currentTime)} / ${fmtTime(video.duration)}`;};
+video.onplay=()=>{$('#playBtn').textContent='Ⅱ';cancelAnimationFrame(playbackRaf);playbackRaf=requestAnimationFrame(playbackLoop);};video.onpause=()=>{$('#playBtn').textContent='▶';cancelAnimationFrame(playbackRaf);playbackRaf=0;if(analysis&&!busy)renderFrameAt(video.currentTime);};
+$('#playBtn').onclick=()=>video.paused?video.play():video.pause();$('#seek').oninput=e=>{jumpTo(video.duration*e.target.value/1000);};
+$('#playbackRate').onchange=e=>{video.playbackRate=+e.target.value;};video.playbackRate=+$('#playbackRate').value;
 $('#mirrorBtn').onclick=()=>{mirrored=!mirrored;$('#mirrorBtn').setAttribute('aria-pressed',mirrored);video.classList.toggle('mirrored',mirrored);overlay.classList.toggle('mirrored',mirrored);};
 $('#demoBtn').onclick=()=>{demoMode=true;video.removeAttribute('src');video.load();$('#emptyStage').classList.remove('hidden');$('#emptyStage').innerHTML='<div class="demo-people"><i></i><i></i><i></i></div><strong>內建三人套路同步示範</strong><span>含兩段刻意加入的節奏與姿態差異</span>';$('#videoName').textContent='內建示範 · 模擬骨架資料';$('#videoMeta').textContent='18 秒';$('#modeBadge').textContent='示範資料';$('#analyzeBtn').disabled=false;$('#analyzeBtn').textContent='分析示範';$('#playBtn').disabled=true;$('#seek').disabled=false;$('#seek').value=0;frames=makeDemo();analysis=calculate(frames);renderResults();$('#scoreHud').classList.remove('hidden');drawDemoAt(0);};
 $('#seek').addEventListener('input',e=>{if(demoMode){const t=18*e.target.value/1000;$('#timeText').textContent=`${fmtTime(t)} / 0:18`;drawDemoAt(t);}});
 $('#analyzeBtn').onclick=analyzeVideo;
-$('#exportBtn').onclick=()=>{if(!analysis)return;const profile=PROFILES[analysis.profileKey];const payload={tool:'Dance Sync 武術套路同步分析',producer:'臺灣運動健康科技學會',updated:'2026-11',discipline:{sport:profile.sport,event:profile.event,profile:analysis.profileKey},mode:demoMode?'simulated-demo':'local-video',method:'clip-relative 2D pose, arrival, stop and formation-motion agreement',limits:['relative visual agreement, not official judging or technique correctness','clip-relative scores cannot be compared across videos','single-camera 2D pose; occlusion and crossings can swap identities','no force, breathing, gaze, kiai or audio analysis'],summary:{athletes:analysis.maxPeople,overall:analysis.score,posture:analysis.posture,timing:analysis.timing,stop:analysis.stop,formation:analysis.formation,coverage:analysis.coverage},reviewMoments:analysis.low.map(m=>({start:m.start,end:m.end,lowestTime:m.min.t,lowestScore:m.min.scoreSmooth})),pairs:analysis.pairStats,series:analysis.frames.map(f=>({t:f.t,overall:f.scoreSmooth,posture:f.postureSmooth,timing:f.timingSmooth,stop:f.stopSmooth,formation:f.formationSmooth,people:f.people.length}))};const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));a.download=`martial-sync-${analysis.profileKey}-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
+$('#exportBtn').onclick=()=>{if(!analysis)return;const profile=PROFILES[analysis.profileKey];const payload={tool:'Dance Sync 武術套路同步分析',producer:'臺灣運動健康科技學會',updated:'2026-11',discipline:{sport:profile.sport,event:profile.event,profile:analysis.profileKey},mode:demoMode?'simulated-demo':'local-video',method:'clip-relative 2D pose, arrival, stop and formation-motion agreement',limits:['relative visual agreement, not official judging or technique correctness','clip-relative scores cannot be compared across videos','single-camera 2D pose; occlusion and crossings can swap identities','no force, breathing, gaze, kiai or audio analysis'],summary:{athletes:analysis.maxPeople,overall:analysis.score,posture:analysis.posture,timing:analysis.timing,stop:analysis.stop,formation:analysis.formation,coverage:analysis.coverage},events:analysis.events,pairs:analysis.pairStats,series:analysis.frames.map(f=>({t:f.t,overall:f.scoreSmooth,posture:f.postureSmooth,timing:f.timingSmooth,stop:f.stopSmooth,formation:f.formationSmooth,people:f.people.length}))};const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));a.download=`martial-sync-${analysis.profileKey}-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
 chart.onclick=e=>{if(!analysis?.frames.length)return;const r=chart.getBoundingClientRect(),pct=clamp((e.clientX-r.left-34)/(r.width-48));jumpTo(pct*analysis.frames.at(-1).t);if(demoMode){$('#seek').value=pct*1000;}else{$('#seek').value=pct*1000;}};
 window.addEventListener('resize',()=>{drawChart();if(analysis?.frames.length)jumpTo(demoMode?18*$('#seek').value/1000:video.currentTime||0);});
 document.querySelectorAll('.discipline').forEach(button=>button.onclick=()=>{profileKey=button.dataset.profile;document.querySelectorAll('.discipline').forEach(b=>b.classList.toggle('active',b===button));const profile=PROFILES[profileKey];$('#profileHelp').innerHTML=`<b>${profile.event}：</b>${profile.help}`;$('#analyzeBtn').textContent=demoMode?'分析示範':`開始${profile.event}分析`;if(frames.length){analysis=calculate(frames);renderResults();if(analysis.frames.length)jumpTo(analysis.frames[0].t);}});
