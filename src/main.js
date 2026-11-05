@@ -13,7 +13,7 @@ app.innerHTML = `
       <h1>看見動作一致性，<br><em>不只是一個分數。</em></h1>
       <p>針對空手道型／團體型與跆拳道品勢／團體品勢，比較技術形狀、動作到位、定勢停止與隊形效果，讓教練快速定位值得回看的不同步片段。</p>
       <div class="hero-actions">
-        <label class="button primary" for="fileInput"><span>匯入套路影片</span><small>MP4 / MOV / WebM</small></label>
+        <label class="button primary" for="fileInput"><span>匯入套路影片</span><small>MP4 / MOV / WebM · 最長 60 秒</small></label>
         <input id="fileInput" type="file" accept="video/*" hidden />
         <button id="demoBtn" class="button ghost"><span>觀看內建示範</span><small>3 位舞者 · 18 秒</small></button>
       </div>
@@ -112,6 +112,8 @@ const cctx = chart.getContext('2d');
 const COLORS = ['#24e5bd','#45a9ff','#ffca61','#b891ff','#ff779a','#6ee06e'];
 const CONNECTIONS = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[27,31],[24,26],[26,28],[28,32]];
 const SEGMENTS = [[23,11],[24,12],[11,13],[13,15],[12,14],[14,16],[23,25],[25,27],[24,26],[26,28],[11,12],[23,24]];
+const MAX_VIDEO_SECONDS = 60;
+const SEEK_TIMEOUT_MS = 8000;
 const PROFILES = {
   'karate-team': {sport:'空手道',event:'團體型',team:true,weights:{posture:.30,timing:.35,stop:.25,formation:.10},help:'建議 3 人全身同框、固定正面鏡位。評分權重為到位同步 35%、技術形狀 30%、定勢停止 25%、移位一致 10%。'},
   'karate-solo': {sport:'空手道',event:'型',team:false,weights:{timing:.55,stop:.45},help:'單人模式評估動作節奏輪廓與定勢控制；無標準示範時不判定招式正確性。若要做同步比較，請將參考表演與學員同框。'},
@@ -125,6 +127,7 @@ let busy = false;
 let demoMode = false;
 let mirrored = false;
 let profileKey = 'karate-team';
+let lastDetectionTimestamp = 0;
 
 function setModelStatus(text, ready=false) { $('#modelStatus').textContent = text; $('#modelDot').classList.toggle('ready', ready); }
 function clamp(v,a=0,b=1){ return Math.max(a,Math.min(b,v)); }
@@ -132,6 +135,21 @@ function mean(v){ const a=(v||[]).filter(Number.isFinite); return a.length ? a.r
 function percentile(values,p){ const a=values.filter(Number.isFinite).sort((x,y)=>x-y); if(!a.length)return NaN; const i=(a.length-1)*p,lo=Math.floor(i),hi=Math.ceil(i); return a[lo]+(a[hi]-a[lo])*(i-lo); }
 function fmtTime(s){ return `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; }
 function once(el,event){ return new Promise(resolve=>el.addEventListener(event,resolve,{once:true})); }
+function videoDurationIsValid(){ return Number.isFinite(video.duration)&&video.duration>0&&video.duration<=MAX_VIDEO_SECONDS+.05; }
+function seekVideo(target){
+  const safeTarget=clamp(target,0,Math.max(0,video.duration-.01));
+  if(video.readyState>=2&&Math.abs(video.currentTime-safeTarget)<.002)return Promise.resolve();
+  return new Promise((resolve,reject)=>{
+    let timer;
+    const cleanup=()=>{clearTimeout(timer);video.removeEventListener('seeked',done);video.removeEventListener('error',failed);};
+    const done=()=>{cleanup();resolve();};
+    const failed=()=>{cleanup();reject(new Error('影片影格讀取失敗'));};
+    video.addEventListener('seeked',done,{once:true});
+    video.addEventListener('error',failed,{once:true});
+    timer=setTimeout(()=>{cleanup();reject(new Error(`讀取 ${safeTarget.toFixed(2)} 秒影格逾時`));},SEEK_TIMEOUT_MS);
+    video.currentTime=safeTarget;
+  });
+}
 
 async function loadModel(){
   try {
@@ -140,7 +158,7 @@ async function loadModel(){
     const vision=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm');
     landmarker=await PoseLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task',delegate:'GPU'},runningMode:'VIDEO',numPoses:6,minPoseDetectionConfidence:.45,minPosePresenceConfidence:.45,minTrackingConfidence:.45});
     setModelStatus('多人姿態模型已就緒',true);
-    if(video.src) $('#analyzeBtn').disabled=false;
+    if(video.src&&videoDurationIsValid()) $('#analyzeBtn').disabled=false;
   } catch(err){ console.error(err); setModelStatus('模型載入失敗，可先使用內建示範'); }
 }
 
@@ -239,12 +257,13 @@ function drawDemoAt(t){const f=analysis?.frames.reduce((a,b)=>Math.abs(b.t-t)<Ma
 
 async function analyzeVideo(){
   if(busy)return;if(demoMode){frames=makeDemo();analysis=calculate(frames);renderResults();$('#scoreHud').classList.remove('hidden');drawDemoAt(0);return;}if(!landmarker||!video.duration)return;
-  busy=true;video.pause();frames=[];$('#analyzeBtn').disabled=true;$('#progress').classList.remove('hidden');setModelStatus('逐幀分析中');const fps=+$('#sampleRate').value,step=1/fps,old=video.currentTime;
-  try{for(let t=0;t<video.duration;t+=step){video.currentTime=Math.min(t,video.duration-.02);await once(video,'seeked');const result=landmarker.detectForVideo(video,t*1000+1);frames.push({t,people:assignPeople(result.landmarks||[])});const pct=Math.round(t/video.duration*100);$('#progress span').style.width=`${pct}%`;$('#progressText').textContent=`${pct}%`;if(frames.length%8===0)await new Promise(r=>setTimeout(r,0));}analysis=calculate(frames);renderResults();$('#scoreHud').classList.remove('hidden');jumpTo(0);setModelStatus('分析完成',true);}catch(e){console.error(e);setModelStatus('分析中斷，請改用較短影片');}finally{video.currentTime=old;$('#progress').classList.add('hidden');$('#analyzeBtn').disabled=false;busy=false;}
+  if(!videoDurationIsValid()){setModelStatus(`影片須為 ${MAX_VIDEO_SECONDS} 秒以內`);return;}
+  busy=true;video.pause();frames=[];$('#analyzeBtn').disabled=true;$('#progress').classList.remove('hidden');setModelStatus('逐幀分析中');const fps=+$('#sampleRate').value,step=1/fps,old=video.currentTime,total=Math.ceil(video.duration*fps),runBase=Math.max(performance.now(),lastDetectionTimestamp+1000);
+  try{let index=0;for(let t=0;t<video.duration;t+=step,index++){await seekVideo(t);const timestamp=runBase+index*step*1000;const result=landmarker.detectForVideo(video,timestamp);lastDetectionTimestamp=timestamp;frames.push({t,people:assignPeople(result.landmarks||[])});const pct=Math.min(100,Math.round((index+1)/total*100));$('#progress span').style.width=`${pct}%`;$('#progressText').textContent=`${pct}% · ${index+1}/${total}`;if(frames.length%6===0)await new Promise(r=>setTimeout(r,0));}analysis=calculate(frames);renderResults();$('#scoreHud').classList.remove('hidden');jumpTo(0);setModelStatus(`分析完成 · ${frames.length} 個取樣影格`,true);}catch(e){console.error(e);setModelStatus(`分析中斷：${e.message||'無法讀取影片影格'}`);}finally{video.currentTime=Math.min(old,video.duration||0);$('#progress').classList.add('hidden');$('#analyzeBtn').disabled=!videoDurationIsValid();busy=false;}
 }
 
 $('#fileInput').onchange=e=>{const f=e.target.files?.[0];if(!f)return;demoMode=false;analysis=null;frames=[];video.src=URL.createObjectURL(f);video.load();$('#emptyStage').classList.add('hidden');video.classList.add('visible');$('#videoName').textContent=f.name;$('#videoMeta').textContent=`${(f.size/1048576).toFixed(1)} MB`;$('#modeBadge').textContent='影片已載入';$('#playBtn').disabled=false;$('#seek').disabled=false;$('#analyzeBtn').disabled=!landmarker;$('#analyzeBtn').textContent=`開始${PROFILES[profileKey].event}分析`;$('#scoreHud').classList.add('hidden');octx.clearRect(0,0,overlay.width,overlay.height);};
-video.onloadedmetadata=()=>{$('#videoMeta').textContent+=` · ${fmtTime(video.duration)}`;$('#timeText').textContent=`0:00 / ${fmtTime(video.duration)}`;};
+video.onloadedmetadata=()=>{const valid=videoDurationIsValid();$('#videoMeta').textContent+=` · ${fmtTime(video.duration)}${valid?' · 可分析':' · 超過 60 秒'}`;$('#timeText').textContent=`0:00 / ${fmtTime(video.duration)}`;$('#analyzeBtn').disabled=!landmarker||!valid;$('#modeBadge').textContent=valid?'影片已載入':'影片過長';setModelStatus(valid?'影片可分析，最長支援 60 秒':`影片長度 ${fmtTime(video.duration)}，請裁切至 1:00 以內`,valid&&!!landmarker);};
 video.ontimeupdate=()=>{if(!video.duration)return;$('#seek').value=video.currentTime/video.duration*1000;$('#timeText').textContent=`${fmtTime(video.currentTime)} / ${fmtTime(video.duration)}`;if(analysis&&!busy)jumpTo(video.currentTime);};
 video.onplay=()=>{$('#playBtn').textContent='Ⅱ';};video.onpause=()=>{$('#playBtn').textContent='▶';};
 $('#playBtn').onclick=()=>video.paused?video.play():video.pause();$('#seek').oninput=e=>{video.currentTime=video.duration*e.target.value/1000;};
