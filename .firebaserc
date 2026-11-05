@@ -1,0 +1,13 @@
+{
+  "projects": {},
+  "targets": {
+    "pulselens-fitness-skyfu218": {
+      "hosting": {
+        "dance-sync": [
+          "dance-sync-analysis-skyfu218"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}
