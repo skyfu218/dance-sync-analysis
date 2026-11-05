@@ -24,7 +24,7 @@ app.innerHTML = `
         <button class="discipline" data-profile="taekwondo-team"><small>跆拳道</small><strong>團體品勢</strong><span>踢擊 × 落地 × 到位</span></button>
         <button class="discipline" data-profile="taekwondo-solo"><small>跆拳道</small><strong>品勢</strong><span>節奏 × 落地控制</span></button>
       </div>
-      <p id="profileHelp" class="profile-help"><b>團體型：</b>建議 3 人全身同框、固定正面鏡位。評分權重為到位同步 35%、技術形狀 30%、定勢停止 25%、移位一致 10%。</p>
+      <p id="profileHelp" class="profile-help"><b>團體型：</b>整齊度優先：到位時間差 50%、技術形狀 20%、定勢停止 20%、移位一致 10%。事件會標示相對前排選手的最大快慢拍差。</p>
     </section>
 
     <section class="workspace wrap">
@@ -100,7 +100,7 @@ app.innerHTML = `
 
     <section class="limits wrap">
       <strong>使用界線</strong>
-      <p>本工具評估同一畫面中的影像相對一致性，不判定型／品勢技術是否符合官方規則。單鏡頭無法可靠量測拳腳實際力量、呼吸、視線、氣合、接觸品質或真實三維角度；遮擋、轉身與人物交叉可能造成追蹤換人。個人型／品勢只能回饋節奏與定勢控制，要做同步比較需加入參考表演或同框選手。本工具供教練回看，不是正式裁判評分。</p>
+      <p>本工具評估同一畫面中的影像相對一致性，不判定型／品勢技術是否符合官方規則。事件的毫秒差由取樣影格估算，解析度受 8／10／12 FPS、遮擋、轉身及追蹤換人影響；「前排」依事件影格中較接近鏡頭的選手判定。單鏡頭無法可靠量測拳腳力量、呼吸、視線、氣合或真實三維角度。本工具供教練回看，不是正式裁判或實驗室計時。</p>
     </section>
   </main>
   <footer class="footer wrap">
@@ -121,7 +121,7 @@ const SEGMENTS = [[23,11],[24,12],[11,13],[13,15],[12,14],[14,16],[23,25],[25,27
 const MAX_VIDEO_SECONDS = 60;
 const SEEK_TIMEOUT_MS = 8000;
 const PROFILES = {
-  'karate-team': {sport:'空手道',event:'團體型',team:true,weights:{posture:.30,timing:.35,stop:.25,formation:.10},help:'建議 3 人全身同框、固定正面鏡位。評分權重為到位同步 35%、技術形狀 30%、定勢停止 25%、移位一致 10%。'},
+  'karate-team': {sport:'空手道',event:'團體型',team:true,weights:{posture:.20,timing:.50,stop:.20,formation:.10},help:'整齊度優先：到位時間差 50%、技術形狀 20%、定勢停止 20%、移位一致 10%。事件會標示相對前排選手的最大快慢拍差。'},
   'karate-solo': {sport:'空手道',event:'型',team:false,weights:{timing:.55,stop:.45},help:'單人模式評估動作節奏輪廓與定勢控制；無標準示範時不判定招式正確性。若要做同步比較，請將參考表演與學員同框。'},
   'taekwondo-team': {sport:'跆拳道',event:'團體品勢',team:true,weights:{posture:.30,timing:.30,stop:.25,formation:.15},help:'建議全身與落地腳完整入鏡。評分權重為到位同步 30%、技術形狀 30%、定勢／落地 25%、移位一致 15%。'},
   'taekwondo-solo': {sport:'跆拳道',event:'品勢',team:false,weights:{timing:.50,stop:.50},help:'單人模式著重節奏、踢擊回收後的停止與落地控制；未提供標準示範時不判定品勢技術正確性。'}
@@ -185,6 +185,18 @@ function postureDifference(a,b){ return mean(a.map((v,i)=>Math.max(0,angleDelta(
 function centerOf(lm){ return {x:mean([lm[11].x,lm[12].x,lm[23].x,lm[24].x]),y:mean([lm[11].y,lm[12].y,lm[23].y,lm[24].y])}; }
 function std(values){ const a=values.filter(Number.isFinite),m=mean(a); return a.length?Math.sqrt(mean(a.map(v=>(v-m)**2))):NaN; }
 function weighted(values,weights){ let sum=0,total=0;Object.entries(weights).forEach(([key,w])=>{if(Number.isFinite(values[key])){sum+=values[key]*w;total+=w;}});return total?sum/total:NaN; }
+function estimateEventTiming(enriched,event,maxPeople){
+  const window=enriched.filter(f=>f.t>=Math.max(0,event.at-1)&&f.t<=event.at+1),intervals=window.slice(1).map((f,i)=>f.t-window[i].t).filter(v=>v>0),dt=percentile(intervals,.5)||.1,resolutionMs=Math.round(dt*1000);
+  const eventFrame=enriched.reduce((a,b)=>Math.abs(b.t-event.at)<Math.abs(a.t-event.at)?b:a),front=eventFrame.people.map((lm,p)=>({athlete:p+1,y:centerOf(lm).y})).filter(x=>Number.isFinite(x.y)).sort((a,b)=>b.y-a.y)[0];
+  const referenceAthlete=front?.athlete||1,reference=window.map(f=>f.motion[referenceAthlete-1]),maxLag=Math.max(1,Math.round(.5/dt)),comparisons=[];
+  for(let p=0;p<maxPeople;p++){
+    if(p===referenceAthlete-1)continue;const candidate=window.map(f=>f.motion[p]),refMean=mean(reference),candMean=mean(candidate),refSd=std(reference)||1,candSd=std(candidate)||1;let best=null;
+    for(let lag=-maxLag;lag<=maxLag;lag++){const errors=[];for(let i=0;i<reference.length;i++){const j=i+lag;if(j>=0&&j<candidate.length&&Number.isFinite(reference[i])&&Number.isFinite(candidate[j]))errors.push(((reference[i]-refMean)/refSd-(candidate[j]-candMean)/candSd)**2);}if(errors.length>=5){const error=mean(errors);if(!best||error<best.error)best={lag,error};}}
+    if(best)comparisons.push({athlete:p+1,signedMs:Math.round(best.lag*dt*1000)});
+  }
+  const compared=comparisons.sort((a,b)=>Math.abs(b.signedMs)-Math.abs(a.signedMs))[0];if(!compared)return null;
+  return {referenceAthlete,athlete:compared.athlete,signedMs:compared.signedMs,differenceMs:Math.abs(compared.signedMs),direction:compared.signedMs>=0?'慢':'快',resolutionMs,method:'event motion cross-correlation ±500ms',comparisons};
+}
 
 function calculate(rawFrames){
   const profile=PROFILES[profileKey];
@@ -216,9 +228,9 @@ function calculate(rawFrames){
   const pairStats=pairs.map((pair,pi)=>({pair,score:mean(enriched.map(f=>Number.isFinite(f.pairDiffs[pi])?score(f.pairDiffs[pi],pBest,pBad):NaN))}));
   const valid=enriched.filter(f=>Number.isFinite(f.score));
   const low=[]; let active=null;
-  valid.forEach(f=>{ if(f.scoreSmooth<48){ if(!active)active={start:f.t,end:f.t,min:f}; active.end=f.t;if(f.scoreSmooth<active.min.scoreSmooth)active.min=f; } else if(active){if(active.end-active.start>.35)low.push(active);active=null;} }); if(active)low.push(active);
+  valid.forEach(f=>{ if(f.scoreSmooth<50||f.timingSmooth<45){ if(!active)active={start:f.t,end:f.t,min:f}; active.end=f.t;if(f.scoreSmooth<active.min.scoreSmooth)active.min=f; } else if(active){if(active.end-active.start>.35)low.push(active);active=null;} }); if(active)low.push(active);
   const componentNames={posture:'技術形狀',timing:'到位慢拍',stop:'定勢停止',formation:'移位一致'};
-  const events=low.map((m,i)=>{const ranked=[['posture',m.min.postureSmooth],['timing',m.min.timingSmooth],['stop',m.min.stopSmooth],['formation',m.min.formationSmooth]].filter(x=>Number.isFinite(x[1])).sort((a,b)=>a[1]-b[1]);const issue=ranked[0]?.[0]||'timing',minimum=Math.round(m.min.scoreSmooth);return {id:i+1,start:m.start,end:m.end,at:m.min.t,replayStart:Math.max(0,m.start-.6),score:minimum,issue,label:componentNames[issue],severity:minimum<20?'嚴重':minimum<35?'明顯':'需複查'};});
+  const events=low.map((m,i)=>{const ranked=[['posture',m.min.postureSmooth],['timing',m.min.timingSmooth],['stop',m.min.stopSmooth],['formation',m.min.formationSmooth]].filter(x=>Number.isFinite(x[1])).sort((a,b)=>a[1]-b[1]);const issue=ranked[0]?.[0]||'timing',minimum=Math.round(m.min.scoreSmooth),base={id:i+1,start:m.start,end:m.end,at:m.min.t,replayStart:Math.max(0,m.start-.6),score:minimum,issue,label:componentNames[issue],severity:minimum<20?'嚴重':minimum<35?'明顯':'需複查'};return {...base,timing:profile.team?estimateEventTiming(enriched,base,maxPeople):null};});
   return {frames:enriched,maxPeople,pairs,pairStats,posture:mean(valid.map(f=>f.postureSmooth)),timing:mean(valid.map(f=>f.timingSmooth)),stop:mean(valid.map(f=>f.stopSmooth)),formation:mean(valid.map(f=>f.formationSmooth)),score:mean(valid.map(f=>f.scoreSmooth)),coverage:selected.length?valid.length/selected.length*100:0,low,events,profileKey,anchors:{pBest,pBad,tBest,tBad,sBest,sBad,fBest,fBad,motionLow}};
 }
 
@@ -236,6 +248,7 @@ function drawChart(){
   const line=(key,color,width)=>{cctx.beginPath();analysis.frames.forEach((f,i)=>{const x=pad.l+f.t/maxT*(w-pad.l-pad.r),y=pad.t+(100-(f[key]??50))/100*(h-pad.t-pad.b);i?cctx.lineTo(x,y):cctx.moveTo(x,y);});cctx.strokeStyle=color;cctx.lineWidth=width;cctx.stroke();};line('scoreSmooth','#31e4c0',3);line('postureSmooth','#ae8dff',1.5);line('timingSmooth','#72de7e',1.5);
   cctx.fillStyle='#748d86';cctx.textAlign='center';for(let i=0;i<=4;i++){const t=maxT*i/4;cctx.fillText(fmtTime(t),pad.l+(w-pad.l-pad.r)*i/4,h-7);}
 }
+function timingText(event){const t=event?.timing;return t?`D${t.athlete} 相對前排 D${t.referenceAthlete} ${t.direction}約 ${t.differenceMs} ms`:'此事件無法穩定估算選手時間差';}
 function renderResults(){
   if(!analysis)return; const n=v=>Number.isFinite(v)?`${Math.round(v)}`:'—',profile=PROFILES[analysis.profileKey];
   $('#totalScore').textContent=n(analysis.score);$('#postureScore').textContent=n(analysis.posture);$('#timingScore').textContent=n(analysis.timing);$('#stopScore').textContent=n(analysis.stop);$('#formationScore').textContent=n(analysis.formation);$('#dancerCount').textContent=analysis.maxPeople;$('#coverageScore').textContent=`${Math.round(analysis.coverage)}%`;$('#scoreRing').style.setProperty('--score',`${analysis.score||0}%`);$('#scoreLabel').textContent=profile.team?'整體同步':'節奏控制';$('#modeBadge').textContent=demoMode?`${profile.event}示範`:`${profile.event}分析`;
@@ -252,16 +265,16 @@ function renderResults(){
   const caveat=profile.team?`目前有效辨識 ${analysis.maxPeople} 人；${analysis.maxPeople<3?'未達團體項目建議 3 人，分數僅供測試。':'可用低分片段逐一口頭回饋。'}`:'單人分數只描述本片節奏與停止控制，不代表型／品勢技術得分。';
   $('#coachFeedback').innerHTML=`<div><b>${profile.sport}${profile.event}教練回饋</b><span>${caveat}</span></div><ul>${feedback}</ul>`;
   $('#pairGrid').innerHTML=analysis.pairStats.length?analysis.pairStats.map((p,i)=>`<article class="pair-card panel"><div><span style="--c:${COLORS[p.pair[0]]}">D${p.pair[0]+1}</span><i>×</i><span style="--c:${COLORS[p.pair[1]]}">D${p.pair[1]+1}</span></div><strong>${n(p.score)}</strong><small>姿態相似度</small><b style="width:${clamp(p.score||0,0,100)}%"></b></article>`).join(''):'<article class="pair-placeholder panel">至少需要 2 位可辨識舞者</article>';
-  const severe=analysis.events.filter(e=>e.severity==='嚴重').length,mainIssue=analysis.events.reduce((acc,e)=>(acc[e.label]=(acc[e.label]||0)+1,acc),{}),topIssue=Object.entries(mainIssue).sort((a,b)=>b[1]-a[1])[0]?.[0];
-  $('#reviewSummary').innerHTML=`<b>自動 Review｜${analysis.events.length} 個事件${severe?` · ${severe} 個嚴重`:''}</b><span>${analysis.events.length?`建議先看紅色事件；本片最常見問題為${topIssue}。點擊事件會從前 0.6 秒以目前慢速設定回放。`:'沒有形成連續低同步事件，可從趨勢圖抽查動作到位。'}</span>`;
-  $('#moments').innerHTML=analysis.events.length?analysis.events.slice(0,8).map(e=>`<button class="severity-${e.severity}" data-event="${e.id-1}"><b>E${String(e.id).padStart(2,'0')}</b><span><strong>${fmtTime(e.start)}–${fmtTime(e.end)} · ${e.label}</strong><small>${e.severity}｜最低同步 ${e.score} · 慢速回放</small></span><i>▶</i></button>`).join(''):'<div class="placeholder">沒有偵測到連續低同步片段。</div>';
+  const severe=analysis.events.filter(e=>e.severity==='嚴重').length,mainIssue=analysis.events.reduce((acc,e)=>(acc[e.label]=(acc[e.label]||0)+1,acc),{}),topIssue=Object.entries(mainIssue).sort((a,b)=>b[1]-a[1])[0]?.[0],maxLag=analysis.events.filter(e=>e.timing).sort((a,b)=>b.timing.differenceMs-a.timing.differenceMs)[0];
+  $('#reviewSummary').innerHTML=`<b>整齊度 Review｜${analysis.events.length} 個事件${severe?` · ${severe} 個嚴重`:''}</b><span>${analysis.events.length?`本片最常見問題為${topIssue}。${maxLag?`最大時間差：${timingText(maxLag)}。`:''}點擊事件會從前 0.6 秒慢速回放。`:'沒有形成連續低同步事件，可從趨勢圖抽查動作到位。'}</span>`;
+  $('#moments').innerHTML=analysis.events.length?analysis.events.slice(0,8).map(e=>`<button class="severity-${e.severity}" data-event="${e.id-1}"><b>E${String(e.id).padStart(2,'0')}</b><span><strong>${fmtTime(e.start)}–${fmtTime(e.end)} · ${e.label}</strong><em>${timingText(e)}</em><small>${e.severity}｜最低同步 ${e.score} · 慢速回放</small></span><i>▶</i></button>`).join(''):'<div class="placeholder">沒有偵測到連續低同步片段。</div>';
   $('#moments').querySelectorAll('button').forEach(b=>b.onclick=()=>replayEvent(analysis.events[+b.dataset.event]));renderEventRail();drawChart();$('#exportBtn').disabled=false;
 }
 function frameAt(t){return analysis?.frames?.reduce((a,b)=>Math.abs(b.t-t)<Math.abs(a.t-t)?b:a);}
-function renderFrameAt(t){const f=frameAt(t);if(!f)return;drawPoses(f.people);$('#hudScore').textContent=Math.round(f.scoreSmooth||0);const event=analysis.events?.find(e=>t>=e.start&&t<=e.end);$('#eventNow').classList.toggle('hidden',!event);if(event)$('#eventNow span').textContent=`E${String(event.id).padStart(2,'0')} · ${event.severity} · ${event.label} · ${fmtTime(event.start)}–${fmtTime(event.end)}`;document.querySelectorAll('.event-marker').forEach((m,i)=>m.classList.toggle('current',event?.id===i+1));}
+function renderFrameAt(t){const f=frameAt(t);if(!f)return;drawPoses(f.people);$('#hudScore').textContent=Math.round(f.scoreSmooth||0);const event=analysis.events?.find(e=>t>=e.start&&t<=e.end);$('#eventNow').classList.toggle('hidden',!event);if(event)$('#eventNow span').textContent=`E${String(event.id).padStart(2,'0')} · ${event.severity} · ${event.label} · ${timingText(event)}`;document.querySelectorAll('.event-marker').forEach((m,i)=>m.classList.toggle('current',event?.id===i+1));}
 function jumpTo(t){const max=demoMode?18:video.duration||analysis?.frames?.at(-1)?.t||0,tSafe=clamp(t,0,max);if(!demoMode)video.currentTime=tSafe;$('#seek').value=max?tSafe/max*1000:0;demoMode?drawDemoAt(tSafe):renderFrameAt(tSafe);}
 function replayEvent(event){if(!event)return;video.pause();jumpTo(event.replayStart);if(!demoMode)video.play().catch(()=>{});}
-function renderEventRail(){const max=demoMode?18:video.duration||analysis?.frames?.at(-1)?.t||1;$('#eventRail').innerHTML=(analysis.events||[]).map(e=>`<button class="event-marker severity-${e.severity}" style="left:${clamp(e.at/max)*100}%" data-event="${e.id-1}" title="E${String(e.id).padStart(2,'0')} ${e.severity}｜${e.label}｜${fmtTime(e.at)}" aria-label="事件 ${e.id}，${e.severity}，${e.label}，${fmtTime(e.at)}"></button>`).join('');$('#eventRail').querySelectorAll('button').forEach(b=>b.onclick=()=>replayEvent(analysis.events[+b.dataset.event]));}
+function renderEventRail(){const max=demoMode?18:video.duration||analysis?.frames?.at(-1)?.t||1;$('#eventRail').innerHTML=(analysis.events||[]).map(e=>`<button class="event-marker severity-${e.severity}" style="left:${clamp(e.at/max)*100}%" data-event="${e.id-1}" title="E${String(e.id).padStart(2,'0')} ${e.severity}｜${e.label}｜${timingText(e)}｜${fmtTime(e.at)}" aria-label="事件 ${e.id}，${e.severity}，${e.label}，${timingText(e)}，${fmtTime(e.at)}"></button>`).join('');$('#eventRail').querySelectorAll('button').forEach(b=>b.onclick=()=>replayEvent(analysis.events[+b.dataset.event]));}
 function playbackLoop(){if(video.paused||video.ended){playbackRaf=0;return;}renderFrameAt(video.currentTime);playbackRaf=requestAnimationFrame(playbackLoop);}
 
 function demoPose(cx,phase,variance=0){
